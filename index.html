@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>歴代総理大臣当てゲーム</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f0f4f8; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 10px; max-width: 520px; margin: 0 auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        input, button, select { font-size: 16px; padding: 10px; margin: 5px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .result { font-weight: bold; margin-top: 15px; font-size: 18px; }
+        .hidden { display: none; }
+        .mode-desc { font-size: 13px; color: #444; margin-top: 10px; text-align: left; background: #eef2f7; padding: 12px; border-radius: 6px; line-height: 1.5; }
+        .wrong-list { margin-top: 20px; text-align: left; background: #fff5f5; padding: 15px; border-radius: 8px; border: 1px solid #feb2b2; max-height: 250px; overflow-y: auto; }
+        .wrong-list h3 { margin-top: 0; color: #c53030; font-size: 16px; margin-bottom: 10px; }
+        .wrong-list ul { margin: 0; padding-left: 20px; font-size: 14px; }
+        .wrong-list li { margin-bottom: 6px; color: #2d3748; line-height: 1.4; }
+        .pm-image { width: 180px; height: 230px; object-fit: cover; border-radius: 8px; border: 2px solid #ccc; margin: 10px auto; display: block; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+        .timer-display { font-size: 20px; font-weight: bold; color: #d9534f; margin-bottom: 10px; font-family: monospace; }
+        .option-group { margin-top: 15px; text-align: left; background: #fafafa; padding: 10px 15px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>歴代総理大臣当てゲーム</h1>
+
+    <div id="setup-screen">
+        <p><strong>① 出題範囲（1〜103代）</strong></p>
+        <label><input type="number" id="start-num" value="1" min="1" max="103"> 代目 〜 </label>
+        <label><input type="number" id="end-num" value="103" min="1" max="103"> 代目</label>
+
+        <p style="margin-top:20px;"><strong>② 難易度を選択</strong></p>
+        <select id="difficulty" onchange="updateDesc()">
+            <option value="easy">かんたん（苗字・ひらがなOK）</option>
+            <option value="hard">むずかしい（苗字OK ＋ 就任回数）</option>
+            <option value="extreme">激ムズ（漢字フルネーム ＋ 就任回数）</option>
+            <option value="oni">鬼ムズ（顔写真のみ ＋ 漢字フルネーム ＋ 就任回数）</option>
+        </select>
+
+        <div class="option-group">
+            <label style="cursor:pointer;">
+                <input type="checkbox" id="timer-toggle" checked> <strong>ストップウォッチ機能（計測する）</strong>
+            </label>
+        </div>
+        
+        <div class="mode-desc" id="mode-desc-text">
+            ・第7代（伊藤博文の4回目就任）の例：<br>
+            「伊藤」「いとう」「伊藤博文」などで正解
+        </div>
+
+        <br>
+        <button onclick="startGame()">ゲームスタート</button>
+    </div>
+
+    <div id="game-screen" class="hidden">
+        <div id="timer-box" class="timer-display hidden">⏱ 00:00</div>
+        <h2 id="question">第?代の内閣総理大臣は？</h2>
+        <img id="pm-img" class="pm-image hidden" src="" alt="顔写真">
+        <p id="sub-hint">漢字またはひらがな（フルネーム/苗字のみ可）で入力してください</p>
+        <div id="input-container">
+            <input type="text" id="answer-input" placeholder="名前を入力..." onkeydown="if(event.key==='Enter') checkAnswer()">
+            <button onclick="checkAnswer()">回答</button>
+        </div>
+        <div id="result-message" class="result"></div>
+        <p>進行状況: <span id="current-count">0</span> / <span id="total-questions">0</span> 題（正解: <span id="score">0</span>）</p>
+
+        <div id="wrong-summary" class="wrong-list hidden">
+            <h3>❌ 間違えた問題と正解</h3>
+            <ul id="wrong-ul"></ul>
+        </div>
+
+        <button onclick="resetGame()" style="background-color: #6c757d; margin-top: 15px;">範囲を選び直す</button>
+    </div>
+</div>
+
+<script>
+const pmMasterData = {
+    1: { name: "伊藤博文", kana: "いとうひろぶみ", times: 1, aliases: ["伊藤", "いとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Ito_Hirobumi_cropped.jpg/300px-Ito_Hirobumi_cropped.jpg" },
+    2: { name: "黒田清隆", kana: "くろだきよたか", times: 1, aliases: ["黒田", "くろだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Kuroda_Kiyotaka_portrait.jpg/300px-Kuroda_Kiyotaka_portrait.jpg" },
+    3: { name: "山縣有朋", kana: "やまがたありとも", times: 1, aliases: ["山県有朋", "山縣", "山県", "やまがた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Yamagata_Aritomo_1.jpg/300px-Yamagata_Aritomo_1.jpg" },
+    4: { name: "松方正義", kana: "まつかたまさよし", times: 1, aliases: ["松方", "まつかた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Matsukata_Masayoshi_formal.jpg/300px-Matsukata_Masayoshi_formal.jpg" },
+    5: { name: "伊藤博文", kana: "いとうひろぶみ", times: 2, aliases: ["伊藤", "いとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Ito_Hirobumi_cropped.jpg/300px-Ito_Hirobumi_cropped.jpg" },
+    6: { name: "松方正義", kana: "まつかたまさよし", times: 2, aliases: ["松方", "まつかた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Matsukata_Masayoshi_formal.jpg/300px-Matsukata_Masayoshi_formal.jpg" },
+    7: { name: "伊藤博文", kana: "いとうひろぶみ", times: 3, aliases: ["伊藤", "いとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Ito_Hirobumi_cropped.jpg/300px-Ito_Hirobumi_cropped.jpg" },
+    8: { name: "大隈重信", kana: "おおくましげのぶ", times: 1, aliases: ["大隈", "おおくま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Okuma_Shigenobu.jpg/300px-Okuma_Shigenobu.jpg" },
+    9: { name: "山縣有朋", kana: "やまがたありとも", times: 2, aliases: ["山県有朋", "山縣", "山県", "やまがた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Yamagata_Aritomo_1.jpg/300px-Yamagata_Aritomo_1.jpg" },
+    10: { name: "伊藤博文", kana: "いとうひろぶみ", times: 4, aliases: ["伊藤", "いとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Ito_Hirobumi_cropped.jpg/300px-Ito_Hirobumi_cropped.jpg" },
+    11: { name: "桂太郎", kana: "かつらたろう", times: 1, aliases: ["桂", "かつら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Katsura_Taro_1900.jpg/300px-Katsura_Taro_1900.jpg" },
+    12: { name: "西園寺公望", kana: "さいおんじきんもち", times: 1, aliases: ["西園寺", "さいおんじ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Kinmochi_Saionji.jpg/300px-Kinmochi_Saionji.jpg" },
+    13: { name: "桂太郎", kana: "かつらたろう", times: 2, aliases: ["桂", "かつら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Katsura_Taro_1900.jpg/300px-Katsura_Taro_1900.jpg" },
+    14: { name: "西園寺公望", kana: "さいおんじきんもち", times: 2, aliases: ["西園寺", "さいおんじ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/Kinmochi_Saionji.jpg/300px-Kinmochi_Saionji.jpg" },
+    15: { name: "桂太郎", kana: "かつらたろう", times: 3, aliases: ["桂", "かつら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Katsura_Taro_1900.jpg/300px-Katsura_Taro_1900.jpg" },
+    16: { name: "山本権兵衛", kana: "やまもとごんべえ", times: 1, aliases: ["山本", "やまもと"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Yamamoto_Gonnohyoe_2.jpg/300px-Yamamoto_Gonnohyoe_2.jpg" },
+    17: { name: "大隈重信", kana: "おおくましげのぶ", times: 2, aliases: ["大隈", "おおくま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Okuma_Shigenobu.jpg/300px-Okuma_Shigenobu.jpg" },
+    18: { name: "寺内正毅", kana: "てらうちまさたけ", times: 1, aliases: ["寺内", "てらうち"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Terauchi_Masatake_1.jpg/300px-Terauchi_Masatake_1.jpg" },
+    19: { name: "原敬", kana: "はらたかし", times: 1, aliases: ["原", "はら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Hara_Takashi_1.jpg/300px-Hara_Takashi_1.jpg" },
+    20: { name: "高橋是清", kana: "たかはしこれきよ", times: 1, aliases: ["高橋", "たかはし"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Korekiyo_Takahashi.jpg/300px-Korekiyo_Takahashi.jpg" },
+    21: { name: "加藤友三郎", kana: "かとうともさぶろう", times: 1, aliases: ["加藤", "かとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Kato_Tomosaburo_1.jpg/300px-Kato_Tomosaburo_1.jpg" },
+    22: { name: "山本権兵衛", kana: "やまもとごんべえ", times: 2, aliases: ["山本", "やまもと"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/Yamamoto_Gonnohyoe_2.jpg/300px-Yamamoto_Gonnohyoe_2.jpg" },
+    23: { name: "清浦奎吾", kana: "きようらけいご", times: 1, aliases: ["清浦", "きようら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Kiyoura_Keigo_1.jpg/300px-Kiyoura_Keigo_1.jpg" },
+    24: { name: "加藤高明", kana: "かとうたかあき", times: 1, aliases: ["加藤", "かとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Kato_Takaaki_1.jpg/300px-Kato_Takaaki_1.jpg" },
+    25: { name: "若槻禮次郎", kana: "わかつきれいじろう", times: 1, aliases: ["若槻礼次郎", "若槻", "わかつき"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Reijiro_Wakatsuki.jpg/300px-Reijiro_Wakatsuki.jpg" },
+    26: { name: "田中義一", kana: "たなかぎいち", times: 1, aliases: ["田中", "たなか"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Giichi_Tanaka_portrait.jpg/300px-Giichi_Tanaka_portrait.jpg" },
+    27: { name: "濱口雄幸", kana: "はまぐちおさち", times: 1, aliases: ["浜口雄幸", "濱口", "浜口", "はまぐち"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Osachi_Hamaguchi.jpg/300px-Osachi_Hamaguchi.jpg" },
+    28: { name: "若槻禮次郎", kana: "わかつきれいじろう", times: 2, aliases: ["若槻礼次郎", "若槻", "わかつき"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Reijiro_Wakatsuki.jpg/300px-Reijiro_Wakatsuki.jpg" },
+    29: { name: "犬養毅", kana: "いぬかいつよし", times: 1, aliases: ["犬養", "いぬかい"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Tsuyoshi_Inukai.jpg/300px-Tsuyoshi_Inukai.jpg" },
+    30: { name: "齋藤実", kana: "さいとうまこと", times: 1, aliases: ["斎藤実", "齋藤", "斎藤", "さいとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Saito_Makoto_1.jpg/300px-Saito_Makoto_1.jpg" },
+    31: { name: "岡田啓介", kana: "おかだけいすけ", times: 1, aliases: ["岡田", "おかだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Keisuke_Okada_1.jpg/300px-Keisuke_Okada_1.jpg" },
+    32: { name: "廣田弘毅", kana: "ひろたこうき", times: 1, aliases: ["広田弘毅", "廣田", "広田", "ひろた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Koki_Hirota_1.jpg/300px-Koki_Hirota_1.jpg" },
+    33: { name: "林銑十郎", kana: "はやしせんじゅうろう", times: 1, aliases: ["林", "はやし"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Senjuro_Hayashi_1.jpg/300px-Senjuro_Hayashi_1.jpg" },
+    34: { name: "近衞文麿", kana: "このえふみまろ", times: 1, aliases: ["近衛文麿", "近衞", "近衛", "このえ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Fumimaro_Konoe_1.jpg/300px-Fumimaro_Konoe_1.jpg" },
+    35: { name: "平沼騏一郎", kana: "ひらぬまきいちろう", times: 1, aliases: ["平沼", "ひらぬま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7f/Kiichiro_Hiranuma_1.jpg/300px-Kiichiro_Hiranuma_1.jpg" },
+    36: { name: "阿部信行", kana: "あべのぶゆき", times: 1, aliases: ["阿部", "あべ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Nobuyuki_Abe_1.jpg/300px-Nobuyuki_Abe_1.jpg" },
+    37: { name: "米内光政", kana: "よないみつまさ", times: 1, aliases: ["米内", "よない"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Mitsumasa_Yonai_1.jpg/300px-Mitsumasa_Yonai_1.jpg" },
+    38: { name: "近衞文麿", kana: "このえふみまろ", times: 2, aliases: ["近衛文麿", "近衞", "近衛", "このえ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Fumimaro_Konoe_1.jpg/300px-Fumimaro_Konoe_1.jpg" },
+    39: { name: "近衞文麿", kana: "このえふみまろ", times: 3, aliases: ["近衛文麿", "近衞", "近衛", "このえ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Fumimaro_Konoe_1.jpg/300px-Fumimaro_Konoe_1.jpg" },
+    40: { name: "東條英機", kana: "とうじょうひでき", times: 1, aliases: ["東条英機", "東條", "東条", "とうじょう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Hideki_Tojo_1941.jpg/300px-Hideki_Tojo_1941.jpg" },
+    41: { name: "小磯國昭", kana: "こいそくニアき", times: 1, aliases: ["小磯国昭", "小磯", "こいそ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Kuniaki_Koiso_1.jpg/300px-Kuniaki_Koiso_1.jpg" },
+    42: { name: "鈴木貫太郎", kana: "すずきかんたろう", times: 1, aliases: ["鈴木", "すずき"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Kantaro_Suzuki_1.jpg/300px-Kantaro_Suzuki_1.jpg" },
+    43: { name: "東久邇宮稔彦王", kana: "ひがしくにのみやなるひこおう", times: 1, aliases: ["東久邇宮", "ひがしくにのみや"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Prince_Higashikuni_Naruhiko.jpg/300px-Prince_Higashikuni_Naruhiko.jpg" },
+    44: { name: "幣原喜重郎", kana: "しではらきじゅうろう", times: 1, aliases: ["幣原", "しではら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a1/Kijuro_Shidehara_1.jpg/300px-Kijuro_Shidehara_1.jpg" },
+    45: { name: "吉田茂", kana: "よしだしげる", times: 1, aliases: ["吉田", "よしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Shigeru_Yoshida_1952.jpg/300px-Shigeru_Yoshida_1952.jpg" },
+    46: { name: "片山哲", kana: "かたやまてつ", times: 1, aliases: ["片山", "かたやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Tetsu_Katayama_1947.jpg/300px-Tetsu_Katayama_1947.jpg" },
+    47: { name: "芦田均", kana: "あしだひとし", times: 1, aliases: ["芦田", "あしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Hitoshi_Ashida_1948.jpg/300px-Hitoshi_Ashida_1948.jpg" },
+    48: { name: "吉田茂", kana: "よしだしげる", times: 2, aliases: ["吉田", "よしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Shigeru_Yoshida_1952.jpg/300px-Shigeru_Yoshida_1952.jpg" },
+    49: { name: "吉田茂", kana: "よしだしげる", times: 3, aliases: ["吉田", "よしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Shigeru_Yoshida_1952.jpg/300px-Shigeru_Yoshida_1952.jpg" },
+    50: { name: "吉田茂", kana: "よしだしげる", times: 4, aliases: ["吉田", "よしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Shigeru_Yoshida_1952.jpg/300px-Shigeru_Yoshida_1952.jpg" },
+    51: { name: "吉田茂", kana: "よしだしげる", times: 5, aliases: ["吉田", "よしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/88/Shigeru_Yoshida_1952.jpg/300px-Shigeru_Yoshida_1952.jpg" },
+    52: { name: "鳩山一郎", kana: "はとやまいちろう", times: 1, aliases: ["鳩山", "はとやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Ichiro_Hatoyama_1954.jpg/300px-Ichiro_Hatoyama_1954.jpg" },
+    53: { name: "鳩山一郎", kana: "はとやまいちろう", times: 2, aliases: ["鳩山", "はとやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Ichiro_Hatoyama_1954.jpg/300px-Ichiro_Hatoyama_1954.jpg" },
+    54: { name: "鳩山一郎", kana: "はとやまいちろう", times: 3, aliases: ["鳩山", "はとやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Ichiro_Hatoyama_1954.jpg/300px-Ichiro_Hatoyama_1954.jpg" },
+    55: { name: "石橋湛山", kana: "いしばしたんざん", times: 1, aliases: ["石橋", "いしばし"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Tanzan_Ishibashi_1956.jpg/300px-Tanzan_Ishibashi_1956.jpg" },
+    56: { name: "岸信介", kana: "きしのぶすけ", times: 1, aliases: ["岸", "きし"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Nobusuke_Kishi_1957.jpg/300px-Nobusuke_Kishi_1957.jpg" },
+    57: { name: "岸信介", kana: "きしのぶすけ", times: 2, aliases: ["岸", "きし"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Nobusuke_Kishi_1957.jpg/300px-Nobusuke_Kishi_1957.jpg" },
+    58: { name: "池田勇人", kana: "いけだはやと", times: 1, aliases: ["池田", "いけだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Hayato_Ikeda_1960.jpg/300px-Hayato_Ikeda_1960.jpg" },
+    59: { name: "池田勇人", kana: "いけだはやと", times: 2, aliases: ["池田", "いけだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Hayato_Ikeda_1960.jpg/300px-Hayato_Ikeda_1960.jpg" },
+    60: { name: "池田勇人", kana: "いけだはやと", times: 3, aliases: ["池田", "いけだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Hayato_Ikeda_1960.jpg/300px-Hayato_Ikeda_1960.jpg" },
+    61: { name: "佐藤栄作", kana: "さとうえいさく", times: 1, aliases: ["佐藤", "さとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Eisaku_Sato_1964.jpg/300px-Eisaku_Sato_1964.jpg" },
+    62: { name: "佐藤栄作", kana: "さとうえいさく", times: 2, aliases: ["佐藤", "さとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Eisaku_Sato_1964.jpg/300px-Eisaku_Sato_1964.jpg" },
+    63: { name: "佐藤栄作", kana: "さとうえいさく", times: 3, aliases: ["佐藤", "さとう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Eisaku_Sato_1964.jpg/300px-Eisaku_Sato_1964.jpg" },
+    64: { name: "田中角栄", kana: "たなかかくえい", times: 1, aliases: ["田中", "たなか"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Kakuei_Tanaka_1972.jpg/300px-Kakuei_Tanaka_1972.jpg" },
+    65: { name: "田中角栄", kana: "たなかかくえい", times: 2, aliases: ["田中", "たなか"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Kakuei_Tanaka_1972.jpg/300px-Kakuei_Tanaka_1972.jpg" },
+    66: { name: "三木武夫", kana: "みきたけお", times: 1, aliases: ["三木", "みき"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Takeo_Miki_1974.jpg/300px-Takeo_Miki_1974.jpg" },
+    67: { name: "福田赳夫", kana: "ふくだたけお", times: 1, aliases: ["福田", "ふくだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Takeo_Fukuda_1976.jpg/300px-Takeo_Fukuda_1976.jpg" },
+    68: { name: "大平正芳", kana: "おおひらまさよし", times: 1, aliases: ["大平", "おおひら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Masayoshi_Ohira_1978.jpg/300px-Masayoshi_Ohira_1978.jpg" },
+    69: { name: "大平正芳", kana: "おおひらまさよし", times: 2, aliases: ["大平", "おおひら"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Masayoshi_Ohira_1978.jpg/300px-Masayoshi_Ohira_1978.jpg" },
+    70: { name: "鈴木善幸", kana: "すずきぜんこう", times: 1, aliases: ["鈴木", "すずき"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Zenko_Suzuki_1980.jpg/300px-Zenko_Suzuki_1980.jpg" },
+    71: { name: "中曽根康弘", kana: "なかそねやすひろ", times: 1, aliases: ["中曽根", "なかそね"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Yasuhiro_Nakasone_1982.jpg/300px-Yasuhiro_Nakasone_1982.jpg" },
+    72: { name: "中曽根康弘", kana: "なかそねやすひろ", times: 2, aliases: ["中曽根", "なかそね"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Yasuhiro_Nakasone_1982.jpg/300px-Yasuhiro_Nakasone_1982.jpg" },
+    73: { name: "中曽根康弘", kana: "なかそねやすひろ", times: 3, aliases: ["中曽根", "なかそね"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Yasuhiro_Nakasone_1982.jpg/300px-Yasuhiro_Nakasone_1982.jpg" },
+    74: { name: "竹下登", kana: "たけしたのぼる", times: 1, aliases: ["竹下", "たけした"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Noboru_Takeshita_1987.jpg/300px-Noboru_Takeshita_1987.jpg" },
+    75: { name: "宇野宗佑", kana: "うのそうすけ", times: 1, aliases: ["宇野", "うの"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Sousuke_Uno_1989.jpg/300px-Sousuke_Uno_1989.jpg" },
+    76: { name: "海部俊樹", kana: "かいふとしき", times: 1, aliases: ["海部", "かいふ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Toshiki_Kaifu_1989.jpg/300px-Toshiki_Kaifu_1989.jpg" },
+    77: { name: "海部俊樹", kana: "かいふとしき", times: 2, aliases: ["海部", "かいふ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7b/Toshiki_Kaifu_1989.jpg/300px-Toshiki_Kaifu_1989.jpg" },
+    78: { name: "宮澤喜一", kana: "みやざわきいち", times: 1, aliases: ["宮沢喜一", "宮澤", "宮沢", "みやざわ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kiichi_Miyazawa_1991.jpg/300px-Kiichi_Miyazawa_1991.jpg" },
+    79: { name: "細川護熙", kana: "ほそかわもりひろ", times: 1, aliases: ["細川", "ほそかわ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/60/Morihiro_Hosokawa_1993.jpg/300px-Morihiro_Hosokawa_1993.jpg" },
+    80: { name: "羽田孜", kana: "はたつとむ", times: 1, aliases: ["羽田", "はた"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Tsutomu_Hata_1994.jpg/300px-Tsutomu_Hata_1994.jpg" },
+    81: { name: "村山富市", kana: "むらやまとみいち", times: 1, aliases: ["村山", "むらやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Tomiichi_Murayama_1994.jpg/300px-Tomiichi_Murayama_1994.jpg" },
+    82: { name: "橋本龍太郎", kana: "はしもとりゅうたろう", times: 1, aliases: ["橋本", "はしもと"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Ryutaro_Hashimoto_1996.jpg/300px-Ryutaro_Hashimoto_1996.jpg" },
+    83: { name: "橋本龍太郎", kana: "はしもとりゅうたろう", times: 2, aliases: ["橋本", "はしもと"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/Ryutaro_Hashimoto_1996.jpg/300px-Ryutaro_Hashimoto_1996.jpg" },
+    84: { name: "小渕恵三", kana: "おぶちけいぞう", times: 1, aliases: ["小渕", "おぶち"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Keizo_Obuchi_1998.jpg/300px-Keizo_Obuchi_1998.jpg" },
+    85: { name: "森喜朗", kana: "もりよしろう", times: 1, aliases: ["森", "もり"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Yoshiro_Mori_2000.jpg/300px-Yoshiro_Mori_2000.jpg" },
+    86: { name: "森喜朗", kana: "もりよしろう", times: 2, aliases: ["森", "もり"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Yoshiro_Mori_2000.jpg/300px-Yoshiro_Mori_2000.jpg" },
+    87: { name: "小泉純一郎", kana: "こいずみじゅんいちろう", times: 1, aliases: ["小泉", "こいずみ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Junichiro_Koizumi_2001.jpg/300px-Junichiro_Koizumi_2001.jpg" },
+    88: { name: "小泉純一郎", kana: "こいずみじゅんいちろう", times: 2, aliases: ["小泉", "こいずみ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Junichiro_Koizumi_2001.jpg/300px-Junichiro_Koizumi_2001.jpg" },
+    89: { name: "小泉純一郎", kana: "こいずみじゅんいちろう", times: 3, aliases: ["小泉", "こいずみ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/Junichiro_Koizumi_2001.jpg/300px-Junichiro_Koizumi_2001.jpg" },
+    90: { name: "安倍晋三", kana: "あべしんぞう", times: 1, aliases: ["安倍", "あべ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/08/Shinzo_Abe_2006.jpg/300px-Shinzo_Abe_2006.jpg" },
+    91: { name: "福田康夫", kana: "ふくだやすお", times: 1, aliases: ["福田", "ふくだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Yasuo_Fukuda_2007.jpg/300px-Yasuo_Fukuda_2007.jpg" },
+    92: { name: "麻生太郎", kana: "あそうたろう", times: 1, aliases: ["麻生", "あそう"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Taro_Aso_2008.jpg/300px-Taro_Aso_2008.jpg" },
+    93: { name: "鳩山由紀夫", kana: "はとやまゆきお", times: 1, aliases: ["鳩山", "はとやま"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Yukio_Hatoyama_2009.jpg/300px-Yukio_Hatoyama_2009.jpg" },
+    94: { name: "菅直人", kana: "かんなおと", times: 1, aliases: ["菅", "かん"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Naoto_Kan_2010.jpg/300px-Naoto_Kan_2010.jpg" },
+    95: { name: "野田佳彦", kana: "のだよしひこ", times: 1, aliases: ["野田", "のだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Yoshihiko_Noda_2011.jpg/300px-Yoshihiko_Noda_2011.jpg" },
+    96: { name: "安倍晋三", kana: "あべしんぞう", times: 2, aliases: ["安倍", "あべ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Shinzo_Abe_2012.jpg/300px-Shinzo_Abe_2012.jpg" },
+    97: { name: "安倍晋三", kana: "あべしんぞう", times: 3, aliases: ["安倍", "あべ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Shinzo_Abe_2012.jpg/300px-Shinzo_Abe_2012.jpg" },
+    98: { name: "安倍晋三", kana: "あべしんぞう", times: 4, aliases: ["安倍", "あべ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d3/Shinzo_Abe_2012.jpg/300px-Shinzo_Abe_2012.jpg" },
+    99: { name: "菅義偉", kana: "すがよしひで", times: 1, aliases: ["菅", "すが"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Yoshihide_Suga_2020.jpg/300px-Yoshihide_Suga_2020.jpg" },
+    100: { name: "岸田文雄", kana: "きしだふみお", times: 1, aliases: ["岸田", "きしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Fumio_Kishida_2021.jpg/300px-Fumio_Kishida_2021.jpg" },
+    101: { name: "岸田文雄", kana: "きしだふみお", times: 2, aliases: ["岸田", "きしだ"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Fumio_Kishida_2021.jpg/300px-Fumio_Kishida_2021.jpg" },
+    102: { name: "石破茂", kana: "いしばしげる", times: 1, aliases: ["石破", "いしば"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Shigeru_Ishiba_2024.jpg/300px-Shigeru_Ishiba_2024.jpg" },
+    103: { name: "石破茂", kana: "いしばしげる", times: 2, aliases: ["石破", "いしば"], img: "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Shigeru_Ishiba_2024.jpg/300px-Shigeru_Ishiba_2024.jpg" }
+};
+
+let questionPool = [];
+let currentIndex = 0;
+let score = 0;
+let selectedDifficulty = "easy";
+let wrongAnswers = [];
+let timerInterval = null;
+let secondsElapsed = 0;
+let isTimerEnabled = true;
+
+function normalizeNumber(str) {
+    const numMap = {
+        '①': '1', '②': '2', '③': '3', '④': '4', '⑤': '5',
+        '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
+        '１': '1', '２': '2', '３': '3', '４': '4', '５': '5'
+    };
+    return str.replace(/[①②③④⑤一二三四五１２３４５]/g, m => numMap[m] || m);
+}
+
+function updateDesc() {
+    const diff = document.getElementById('difficulty').value;
+    const descBox = document.getElementById('mode-desc-text');
+    if (diff === "easy") {
+        descBox.innerHTML = "・第7代（伊藤博文の4回目就任）の例：<br>「伊藤」「いとう」「伊藤博文」などで正解";
+    } else if (diff === "hard") {
+        descBox.innerHTML = "・第7代（伊藤博文の4回目就任）の例：<br>「伊藤4」「いとう④」「伊藤博文四」などで正解";
+    } else if (diff === "extreme") {
+        descBox.innerHTML = "・第7代（伊藤博文の4回目就任）の例：<br>「伊藤博文4」「伊藤博文④」で正解（※ひらがなや苗字のみは不可）";
+    } else if (diff === "oni") {
+        descBox.innerHTML = "・鬼ムズ（第何代かのヒント無し！顔写真のみで回答）：<br>「伊藤博文4」「伊藤博文④」で正解（※文字ヒント無し）";
+    }
+}
+
+function shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+
+function startTimer() {
+    secondsElapsed = 0;
+    updateTimerDisplay();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        secondsElapsed++;
+        updateTimerDisplay();
+    }, 1000);
+}
+
+function stopTimer() {
+    if (timerInterval) clearInterval(timerInterval);
+}
+
+function updateTimerDisplay() {
+    const mins = Math.floor(secondsElapsed / 60).toString().padStart(2, '0');
+    const secs = (secondsElapsed % 60).toString().padStart(2, '0');
+    document.getElementById('timer-box').innerText = `⏱ ${mins}:${secs}`;
+}
+
+function startGame() {
+    const start = parseInt(document.getElementById('start-num').value);
+    const end = parseInt(document.getElementById('end-num').value);
+    selectedDifficulty = document.getElementById('difficulty').value;
+    isTimerEnabled = document.getElementById('timer-toggle').checked;
+
+    if (isNaN(start) || isNaN(end) || start > end || start < 1 || end > 103) {
+        alert("正しい範囲を入力してください（1〜103）");
+        return;
+    }
+
+    questionPool = [];
+    for (let i = start; i <= end; i++) {
+        if (pmMasterData[i]) {
+            questionPool.push({ number: i, ...pmMasterData[i] });
+        }
+    }
+
+    if (questionPool.length === 0) {
+        alert("指定された範囲のデータが見つかりません");
+        return;
+    }
+
+    shuffle(questionPool);
+
+    currentIndex = 0;
+    score = 0;
+    wrongAnswers = [];
+
+    document.getElementById('wrong-summary').classList.add('hidden');
+    document.getElementById('wrong-ul').innerHTML = "";
+    document.getElementById('input-container').style.display = "block";
+    document.getElementById('setup-screen').classList.add('hidden');
+    document.getElementById('game-screen').classList.remove('hidden');
+    document.getElementById('total-questions').innerText = questionPool.length;
+
+    if (isTimerEnabled) {
+        document.getElementById('timer-box').classList.remove('hidden');
+        startTimer();
+    } else {
+        document.getElementById('timer-box').classList.add('hidden');
+    }
+
+    if (selectedDifficulty === "oni") {
+        document.getElementById('sub-hint').innerText = "【鬼ムズ】写真の人物の 漢字フルネーム ＋ 就任回数 を入力してください（例: 伊藤博文4）";
+    } else if (selectedDifficulty === "extreme") {
+        document.getElementById('sub-hint').innerText = "【激ムズ】漢字フルネーム ＋ 就任回数 を入力してください（例: 伊藤博文4、伊藤博文④）";
+    } else if (selectedDifficulty === "hard") {
+        document.getElementById('sub-hint').innerText = "【むずかしい】名前 ＋ 就任回数 を入力してください（例: 伊藤4、いとう④）";
+    } else {
+        document.getElementById('sub-hint').innerText = "【かんたん】漢字またはひらがな（フルネーム/苗字のみ可）で入力してください";
+    }
+
+    showQuestion();
+}
+
+function showQuestion() {
+    if (currentIndex >= questionPool.length) {
+        stopTimer();
+        document.getElementById('question').innerText = "全問終了！お疲れ様でした！";
+        document.getElementById('pm-img').classList.add('hidden');
+        document.getElementById('input-container').style.display = "none";
+        document.getElementById('sub-hint').innerText = "";
+
+        let resultText = `最終結果: ${questionPool.length}問中 ${score}問正解！`;
+        if (isTimerEnabled) {
+            const mins = Math.floor(secondsElapsed / 60);
+            const secs = secondsElapsed % 60;
+            resultText += `\n⏱ クリアタイム: ${mins}分${secs}秒`;
+        }
+        document.getElementById('result-message').innerText = resultText;
+
+        if (wrongAnswers.length > 0) {
+            document.getElementById('wrong-summary').classList.remove('hidden');
+            const ul = document.getElementById('wrong-ul');
+            ul.innerHTML = "";
+            
+            wrongAnswers.sort((a, b) => a.number - b.number);
+            
+            wrongAnswers.forEach(item => {
+                const li = document.createElement('li');
+                let answerText = `${item.name}（${item.kana}）`;
+                if (selectedDifficulty === "hard" || selectedDifficulty === "extreme" || selectedDifficulty === "oni") {
+                    answerText = `${item.name}${item.times}`;
+                }
+                li.innerHTML = `<strong>第${item.number}代:</strong> 正解「${answerText}」 <span style="color:#718096; font-size:12px;">(あなたの入力: ${item.userAns})</span>`;
+                ul.appendChild(li);
+            });
+        } else {
+            document.getElementById('result-message').innerText += "\n🎉 全問正解です！素晴らしい！";
+        }
+        return;
+    }
+
+    const q = questionPool[currentIndex];
+    const imgElement = document.getElementById('pm-img');
+
+    if (selectedDifficulty === "oni") {
+        document.getElementById('question').innerText = "この人物の漢字フルネームと就任回数は？";
+        imgElement.src = q.img;
+        imgElement.classList.remove('hidden');
+    } else {
+        document.getElementById('question').innerText = `第 ${q.number} 代の内閣総理大臣は？`;
+        imgElement.classList.add('hidden');
+    }
+
+    document.getElementById('answer-input').value = "";
+    document.getElementById('result-message').innerText = "";
+    document.getElementById('current-count').innerText = currentIndex + 1;
+    document.getElementById('score').innerText = score;
+    document.getElementById('answer-input').focus();
+}
+
+function checkAnswer() {
+    const rawInput = document.getElementById('answer-input').value.trim();
+    const q = questionPool[currentIndex];
+
+    if (!rawInput) return;
+
+    let isCorrect = false;
+
+    if (selectedDifficulty === "easy") {
+        isCorrect = (rawInput === q.name || rawInput === q.kana || (q.aliases && q.aliases.includes(rawInput)));
+    } else if (selectedDifficulty === "hard") {
+        const normalizedInput = normalizeNumber(rawInput);
+        const correctPatterns = [
+            `${q.name}${q.times}`,
+            `${q.kana}${q.times}`
+        ];
+        if (q.aliases) {
+            q.aliases.forEach(alias => correctPatterns.push(`${alias}${q.times}`));
+        }
+        isCorrect = correctPatterns.includes(normalizedInput);
+    } else if (selectedDifficulty === "extreme" || selectedDifficulty === "oni") {
+        const normalizedInput = normalizeNumber(rawInput);
+        let allowedNames = [q.name];
+        if (q.aliases) {
+            q.aliases.forEach(a => {
+                if (!/^[ぁ-ん]+$/.test(a) && a.length > 2) {
+                    allowedNames.push(a);
+                }
+            });
+        }
+        const extremeCorrectPatterns = allowedNames.map(n => `${n}${q.times}`);
+        isCorrect = extremeCorrectPatterns.includes(normalizedInput);
+    }
+
+    if (isCorrect) {
+        document.getElementById('result-message').style.color = "green";
+        document.getElementById('result-message').innerText = `⭕️ 正解！ (${q.name}・第${q.times}回目就任)`;
+        score++;
+    } else {
+        document.getElementById('result-message').style.color = "red";
+        document.getElementById('result-message').innerText = `❌ 残念！ 正解は「${q.name}」（第${q.times}回目）でした`;
+        wrongAnswers.push({
+            number: q.number,
+            name: q.name,
+            kana: q.kana,
+            times: q.times,
+            userAns: rawInput
+        });
+    }
+
+    document.getElementById('score').innerText = score;
+    currentIndex++;
+    setTimeout(showQuestion, 1800);
+}
+
+function resetGame() {
+    stopTimer();
+    document.getElementById('setup-screen').classList.remove('hidden');
+    document.getElementById('game-screen').classList.add('hidden');
+    document.getElementById('input-container').style.display = "block";
+    document.getElementById('wrong-summary').classList.add('hidden');
+    document.getElementById('timer-box').classList.add('hidden');
+}
+</script>
+
+</body>
+</html>
